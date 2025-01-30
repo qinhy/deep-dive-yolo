@@ -1,0 +1,1 @@
+jupyter nbconvert --to markdown yolov5.ipynb --output-dir ../docs
