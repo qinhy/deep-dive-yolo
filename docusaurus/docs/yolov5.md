@@ -74,7 +74,7 @@ Check if YOLOv5 is installed correctly:
 from ultralytics import YOLO
 
 # Load a pre-trained model
-model = YOLO('yolov5s.pt')
+model = YOLO('yolov5s6u.pt')
 
 # Run inference on an image
 results = model('https://ultralytics.com/images/zidane.jpg')
@@ -137,7 +137,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load a pre-trained YOLOv5 model
-model = YOLO("yolov5s.pt")  
+model = YOLO("yolov5s6u.pt")  
 
 # Run inference on an image
 results = model("https://ultralytics.com/images/bus.jpg", conf=0.5)
@@ -156,13 +156,10 @@ plt.show()
 ```
 
     ```
-    PRO TIP  Replace 'model=yolov5s.pt' with new 'model=yolov5su.pt'.
-    YOLOv5 'u' models are trained with https://github.com/ultralytics/ultralytics and feature improved performance vs standard YOLOv5 models trained with https://github.com/ultralytics/yolov5.
-    
     
     Found https://ultralytics.com/images/bus.jpg locally at bus.jpg
-    image 1/1 D:\github\qinhy\deep-dive-yolo\docusaurus\src\bus.jpg: 640x480 4 persons, 1 bus, 15.8ms
-    Speed: 0.0ms preprocess, 15.8ms inference, 0.0ms postprocess per image at shape (1, 3, 640, 480)
+    image 1/1 D:\github\qinhy\deep-dive-yolo\docusaurus\src\yolov5\bus.jpg: 1280x960 4 persons, 1 bus, 205.0ms
+    Speed: 211.1ms preprocess, 205.0ms inference, 1193.7ms postprocess per image at shape (1, 3, 1280, 960)
     ```
     
 
@@ -367,7 +364,7 @@ import rawpy
 from ultralytics import YOLO
 
 # Load YOLO model
-model = YOLO("yolov5s.pt")
+model = YOLO("yolov5s6u.pt")
 
 # Function to process Bayer image
 def process_bayer_image(bayer_image_path):
@@ -400,7 +397,7 @@ import numpy as np
 from ultralytics import YOLO
 
 # Load YOLO model
-model = YOLO("yolov5s.pt")
+model = YOLO("yolov5s6u.pt")
 
 # Load Bayer image (grayscale single-channel)
 bayer_image = cv2.imread("bayer_image.raw", cv2.IMREAD_GRAYSCALE)
@@ -699,9 +696,11 @@ The **Debayer5x5** module performs **demosaicing** of Bayer images using the Mal
 
 The following steps outline the process:
 
-1. **Build a PyTorch Model** (`Debayer5x5`).
-2. **Export the Model to ONNX** for interoperability.
-3. **Convert the ONNX Model to TensorRT** for optimized inference.
+- **Build a PyTorch Model** (`Debayer5x5`).
+- **Try cv2 and the Model** (`Debayer5x5`).
+- **(Optional) Export the Model to ONNX** for interoperability.
+- **(Optional) Convert the ONNX Model to TensorRT** for optimized inference.
+- **(Optional) Try TensorRT Model** for fast inference.
 
 ---
 
@@ -709,7 +708,8 @@ The following steps outline the process:
 ```python
 import enum
 import torch
-import tensorrt as trt
+import numpy as np
+import matplotlib.pyplot as plt
 
 ### Define the `Debayer5x5` PyTorch Model
 # The `Debayer5x5` model applies a **5x5 convolution filter** to interpolate missing color information from a Bayer pattern.
@@ -800,12 +800,12 @@ class Debayer5x5(torch.nn.Module):
 
         Parameters
         ----------
-        x : Bx1xHxW tensor
+        x : Bx1xHxW tensor [0.0 ~ 1.0)
             Images to debayer
 
         Returns
         -------
-        rgb : Bx3xHxW tensor
+        rgb : Bx3xHxW tensor [0.0 ~ 1.0)
             Color images in RGB channel order.
         """
         B, C, H, W = x.shape
@@ -868,10 +868,71 @@ class Debayer5x5(torch.nn.Module):
 # - Implements **Malvar-He-Cutler** algorithm for Bayer interpolation.
 # - Supports **different Bayer layouts** (`RGGB`, `GRBG`, `GBRG`, `BGGR`).
 # - Uses **fixed convolution kernels** for demosaicing.
+```
+
+
+```python
+# Define a 15x15 Bayer pattern matrix
+bayer_matrix = np.array([[0,0,0,0,31,31,31,31,31,31,31,31,0,0,0],
+                        [0,0,0,31,63,63,63,63,63,63,63,63,31,0,0],
+                        [0,0,31,63,95,95,95,95,95,95,95,95,63,31,0],
+                        [0,31,63,95,127,127,127,127,127,127,127,127,95,63,31],
+                        [31,63,95,127,159,159,159,159,159,159,159,159,127,95,63],
+                        [31,63,95,127,159,191,191,191,191,191,191,159,127,95,63],
+                        [31,63,95,127,159,191,223,223,223,191,191,159,127,95,63],
+                        [31,63,95,127,159,191,223,255,223,191,191,159,127,95,63],
+                        [31,63,95,127,159,191,223,223,223,191,191,159,127,95,63],
+                        [31,63,95,127,159,191,191,191,191,191,191,159,127,95,63],
+                        [31,63,95,127,159,159,159,159,159,159,159,159,127,95,63],
+                        [0,31,63,95,127,127,127,127,127,127,127,127,95,63,31],
+                        [0,0,31,63,95,95,95,95,95,95,95,95,63,31,0],
+                        [0,0,0,31,63,63,63,63,63,63,63,63,31,0,0],
+                        [0,0,0,0,31,31,31,31,31,31,31,31,0,0,0]],dtype=np.uint8)
+
+# Display the Bayer pattern matrix as an image
+def plotimg(img,name="15x15 Bayer Pattern",cmap='gray'):
+    plt.figure(figsize=(3, 3))
+    plt.imshow(img, cmap=cmap, interpolation='nearest')
+    if cmap:
+        plt.colorbar(label="Pixel Intensity")
+    plt.title(name)
+    plt.show()
+
+plotimg(bayer_matrix,name="Bayer 15x15 Matrix")
+plotimg(cv2.cvtColor(bayer_matrix,cv2.COLOR_BAYER_BG2RGB),name="cv2 debayer 15x15 Matrix",cmap=None)
+plotimg(
+    (
+        Debayer5x5()(
+            (torch.Tensor(bayer_matrix)/255.0).unsqueeze(0).unsqueeze(0) # To (1x1x15x15) [0~1)
+        ).squeeze(0).permute(1,2,0).cpu().numpy()*255
+    ).astype(np.uint8)
+    ,name="torch debayer 15x15 Matrix",cmap=None)
+```
+
+
+    
+![png](yolov5_files/yolov5_16_0.png)
+    
+
+
+
+    
+![png](yolov5_files/yolov5_16_1.png)
+    
+
+
+
+    
+![png](yolov5_files/yolov5_16_2.png)
+    
+
+
+
+```python
+import tensorrt as trt
 
 ### Build the PyTorch Model
 # We instantiate the `Debayer5x5` model and create a dummy input tensor.
-
 def build_torch_model(shape):
     dummy_input = torch.rand(shape).cuda()
     model = Debayer5x5()
@@ -885,7 +946,6 @@ def build_torch_model(shape):
 
 ### 4. Export Model to ONNX
 # Convert the trained PyTorch model to an **ONNX** format for further conversion.
-
 def export_torch_onnx_model(model, x, onnx_model_path):
     torch.onnx.export(
         model,
@@ -899,9 +959,7 @@ def export_torch_onnx_model(model, x, onnx_model_path):
 
 ### 5. Convert ONNX Model to TensorRT Engine
 # Use TensorRT to build an optimized inference engine.
-
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-
 def build_static_engine(onnx_file_path, engine_file_path, fp16=True):
     with trt.Builder(TRT_LOGGER) as builder, \
          builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)) as network, \
@@ -928,11 +986,13 @@ def build_static_engine(onnx_file_path, engine_file_path, fp16=True):
         with open(engine_file_path, "wb") as f:
             f.write(engine)
         print(f"TensorRT engine saved to {engine_file_path}")
-
+             
 ## Full Execution Pipeline
 print('```')
 modelname = "debayer5x5"
-shape = (1,1,1280,1280)
+
+'!! This shape will be restricted to static and cannot be changed. !!'
+shape = (1,1,15,15)
 
 torch_file_path = f'{modelname}.{shape}.pt'
 onnx_file_path = f'{modelname}.{shape}.onnx'
@@ -945,17 +1005,179 @@ print('```')
 ```
 
     ```
-    torch.Size([1, 3, 1280, 1280])
-    ONNX model saved to debayer5x5.(1, 1, 1280, 1280).onnx
+    torch.Size([1, 3, 14, 14])
+    ONNX model saved to debayer5x5.(1, 1, 15, 15).onnx
     Platform supports FP16, enabling FP16 optimization...
-    TensorRT engine saved to debayer5x5.(1, 1, 1280, 1280).FP16.trt
+    TensorRT engine saved to debayer5x5.(1, 1, 15, 15).FP16.trt
     ```
     
 
-1. **Define the PyTorch Model** (`Debayer5x5`).
-2. **Build & Save the PyTorch Model** (`.pt` file).
-3. **Convert to ONNX** (`.onnx` file).
-4. **Optimize with TensorRT** (`.trt` file).
+
+```python
+# Using a TensorRT engine is not that straightforward.
+
+import numpy as np
+import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit
+import torch
+numpy_to_torch_dtype_dict = {
+            bool: torch.bool,
+            np.uint8: torch.uint8,
+            np.int8: torch.int8,
+            np.int16: torch.int16,
+            np.int32: torch.int32,
+            np.int64: torch.int64,
+            np.float16: torch.float16,
+            np.float32: torch.float32,
+            np.float64: torch.float64,
+            np.complex64: torch.complex64,
+            np.complex128: torch.complex128,
+        }
+
+class GeneralTensorRTInferenceModel:
+
+    class HostDeviceMem:
+        def __init__(self, host_mem, device_mem):
+            self.host = host_mem
+            self.device = device_mem
+
+        def __repr__(self):
+            return f"HostDeviceMem(host={self.host}, device={self.device})"
+
+    def __init__(self, engine_path, input_tensor_name='input', output_tensor_name='output'):
+        # Initialize logger, runtime, and engine
+        self.logger = trt.Logger(trt.Logger.WARNING)
+        self.runtime = trt.Runtime(self.logger)
+        self.engine_path = engine_path
+        self.engine = self._load_engine()
+
+        # Allocate buffers and create execution context
+        self.inputs, self.outputs, self.bindings, self.stream = self._allocate_buffers()
+        self.context = self.engine.create_execution_context()        
+        
+        self.output_tensor_name = output_tensor_name        
+        self.output_shape = self.engine.get_tensor_shape(self.output_tensor_name)
+
+        self.input_tensor_name = input_tensor_name        
+        self.input_shape = self.engine.get_tensor_shape(self.input_tensor_name)
+
+    def _load_engine(self):
+        """Load and deserialize a TensorRT engine from a file."""
+        with open(self.engine_path, "rb") as f:
+            return self.runtime.deserialize_cuda_engine(f.read())
+
+    def _allocate_buffers(self):
+        """Allocate memory buffers for all inputs and outputs."""
+        inputs, outputs, bindings = [], [], []
+        stream = cuda.Stream()
+
+        num_io = self.engine.num_io_tensors  
+        for i in range(num_io):
+            tensor_name = self.engine.get_tensor_name(i)
+            shape = self.engine.get_tensor_shape(tensor_name)
+            self.dtype = dtype = trt.nptype(self.engine.get_tensor_dtype(tensor_name))
+            size = trt.volume(shape)
+            
+            # Allocate host and device buffers
+            host_mem = cuda.pagelocked_empty(size, dtype)
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            bindings.append(int(device_mem))
+
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
+                inputs.append(self.HostDeviceMem(host_mem, device_mem))
+            else:
+                outputs.append(self.HostDeviceMem(host_mem, device_mem))
+
+        return inputs, outputs, bindings, stream
+    
+    def _transfer_torch_cuda_input(self, model_input, input_mem):
+        cuda.memcpy_dtod_async(
+            input_mem.device,
+            model_input.data_ptr(),
+            model_input.element_size() * model_input.nelement(),
+            self.stream)
+
+    def _transfer_np_input(self, model_input, input_mem):
+        np.copyto(input_mem.host, model_input.ravel())
+        cuda.memcpy_htod_async(input_mem.device, input_mem.host, self.stream)
+
+    def _transfer_np_output(self, output_mem, batch_size):
+        cuda.memcpy_dtoh_async(output_mem.host, output_mem.device, self.stream)
+        return output_mem.host.reshape(batch_size, *self.output_shape[1:])
+        
+    def _transfer_torch_cuda_output(self, output_mem, batch_size, device=None):
+        # Create a PyTorch tensor with the appropriate device
+        output_tensor = torch.empty((batch_size, *self.output_shape[1:]), device=device,
+                                    dtype=numpy_to_torch_dtype_dict[self.dtype])
+        # Perform device-to-device memory copy
+        cuda.memcpy_dtod_async(
+            int(output_tensor.data_ptr()),  # Destination (PyTorch CUDA tensor pointer)
+            int(output_mem.device),        # Source (output_mem.device pointer)
+            output_mem.host.nbytes,        # Number of bytes to copy
+            self.stream                     # CUDA stream for asynchronous operation
+        )
+        return output_tensor
+            
+    def __call__(self,input_data):
+        return self.infer([input_data])[0]
+
+    def infer(self, model_inputs):
+        is_numpy = isinstance(model_inputs[0], np.ndarray)
+        if numpy_to_torch_dtype_dict:
+            is_torch = torch.is_tensor(model_inputs[0])
+        else:
+            is_torch = False
+        assert is_numpy or is_torch, "Unsupported input data format!"
+        
+        # Check batch size consistency
+        batch_sizes = [x.shape[0] if is_numpy else x.size(0) for x in model_inputs]
+        assert len(set(batch_sizes)) == 1, "Input batch sizes are inconsistent!"
+        batch_size = batch_sizes[0]
+
+        if is_torch:
+            xt:torch.Tensor = model_inputs[0]
+            assert xt.is_cuda, "Unsupported input torch on cpu!"
+            assert xt.dtype == numpy_to_torch_dtype_dict[self.dtype], f"dtype are inconsistent, need {self.dtype}"
+            transfer_input = self._transfer_torch_cuda_input
+            transfer_output = lambda output_mem, batch_size:self._transfer_torch_cuda_output(
+                                                            output_mem, batch_size,xt.device)
+
+        elif is_numpy:
+            x:np.ndarray = model_inputs[0]
+            assert x.dtype == self.dtype, f"dtype are inconsistent, need {self.dtype}"
+            transfer_input = self._transfer_np_input
+            transfer_output = self._transfer_np_output
+        
+        for i, model_input in enumerate(model_inputs):            
+            transfer_input(model_input, self.inputs[i])
+        self.stream.synchronize()
+        
+        # Run inference
+        self.context.execute_v2(bindings=self.bindings)
+
+        # Transfer output data to host
+        outputs = [transfer_output(out, batch_size) for out in self.outputs]
+        self.stream.synchronize()
+        return outputs
+
+
+trt_m = GeneralTensorRTInferenceModel('debayer5x5.(1, 1, 15, 15).FP16.trt')
+
+plotimg((
+            trt_m(
+                (torch.Tensor(bayer_matrix)/255.0).unsqueeze(0).unsqueeze(0).cuda() # To (1x1x15x15) [0~1)
+            ).squeeze(0).permute(1,2,0).cpu().numpy()*255
+        ).astype(np.uint8)
+    ,name="TensorRT debayer 15x15 Matrix",cmap=None)
+```
+
+
+    
+![png](yolov5_files/yolov5_18_0.png)
+    
+
+
 ---
 
 ## **Handling Large Images**
@@ -973,27 +1195,39 @@ The resizing of a large image is also an acceptable solution, but we do not disc
 A **sliding window** technique helps break down large images into smaller, manageable patches that can be processed independently. Below is an implementation using NumPy.
 
 #### **Implementation: Sliding Window Extraction**
+
+
 ```python
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 class SlidingWindowProcessor:
     def __init__(self, window_size=(512, 512), stride=(256, 256)):
+        """
+        :param window_size: Tuple (height, width) of the sliding window.
+        :param stride: Tuple (vertical_stride, horizontal_stride).
+        """
         self.window_size = window_size
         self.stride = stride
 
+    def __call__(self, data):
+        self.apply_sliding_window(data)
+
     def apply_sliding_window(self, data):
         """
-        Extracts sliding windows from an image.
-        :param data: NumPy array representing the image (H, W, C).
+        Extracts sliding windows from an image (NumPy or PyTorch Tensor).
+        :param data: NumPy array or PyTorch tensor of shape (H, W, C).
         :return: List of image patches and their corresponding bounding boxes.
         """
-        H, W, C = data.shape
+        is_torch_tensor = isinstance(data, torch.Tensor)
+        if is_torch_tensor:
+            C, H, W = data.shape
+        else:
+            H, W, C = data.shape
+
         wH, wW = self.window_size
         sH, sW = self.stride
-
-        if wH > H or wW > W:
-            raise ValueError(f"Window size ({wH}, {wW}) must be <= image size ({H}, {W}).")
 
         windows_list = []
         offsets_xyxy = []
@@ -1002,7 +1236,10 @@ class SlidingWindowProcessor:
             for col_start in range(0, W - wW + 1, sW):
                 window = data[row_start: row_start + wH, col_start: col_start + wW, :]
                 windows_list.append(window)
-                offsets_xyxy.append((col_start, row_start, col_start + wW, row_start + wH))  # Bounding box
+                offsets_xyxy.append((col_start, row_start, col_start, row_start))  # Bounding box
+
+        if is_torch_tensor:
+            windows_list = torch.stack(windows_list)  # Convert list of tensors into a single batch tensor
 
         return windows_list, offsets_xyxy
 
@@ -1010,14 +1247,48 @@ class SlidingWindowProcessor:
 image = np.random.randint(0, 255, (1024, 1024, 3), dtype=np.uint8)  # Simulated large image
 processor = SlidingWindowProcessor(window_size=(512, 512), stride=(256, 256))
 windows, bboxes = processor.apply_sliding_window(image)
-
 print(f"Extracted {len(windows)} windows with bounding boxes: {bboxes[:5]}")
+
+# Small image (16x16)
+image = np.arange(16*16).reshape(16, 16, 1)  # Creating a simple pattern for easy visualization
+# Sliding window parameters
+window_size = (2, 2)
+stride = (2, 2)  # Non-overlapping
+
+# Initialize processor and apply sliding window
+processor = SlidingWindowProcessor(window_size, stride)
+windows, bboxes = processor.apply_sliding_window(image)
+
+fig, axes = plt.subplots(grid_size, grid_size, figsize=(6, 6))
+# Flatten axes for easier iteration
+axes = axes.flatten()
+for idx, (window, bbox) in enumerate(zip(windows, bboxes)):
+    ax = axes[idx]
+    ax.imshow(window, cmap="gray", vmin=image.min(), vmax=image.max())  # Normalize contrast
+    ax.set_title(f"{bbox}", fontsize=8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+# Hide any unused subplots
+for j in range(idx + 1, len(axes)):
+    axes[j].axis("off")
+plt.suptitle("Extracted Sliding Windows (2x2) from 16x16 Image", fontsize=12)
+plt.tight_layout()
+plt.show()
 ```
+
+    Extracted 9 windows with bounding boxes: [(0, 0, 0, 0), (256, 0, 256, 0), (512, 0, 512, 0), (0, 256, 0, 256), (256, 256, 256, 256)]
+    
+
+
+    
+![png](yolov5_files/yolov5_21_1.png)
+    
+
+
 🔹 **Explanation:**
 - The image is divided into **512×512 patches** with a stride of **256 pixels**.
 - Overlapping patches help preserve details at the borders.
 - `offsets_xyxy` keeps track of the **bounding box coordinates** for each extracted patch.
-
 ---
 
 ### **Merge Sliding Window and YOLOv5 results**
@@ -1029,7 +1300,7 @@ Once the sliding window approach is applied, each patch can be passed into **YOL
 from ultralytics import YOLO
 
 # Load YOLOv5 model
-model = YOLO("yolov5s.pt")  # Load pretrained model
+model = YOLO("yolov5s6u.pt")  # Load pretrained model
 
 # Process each window with YOLOv5
 all_detections = []
@@ -1070,7 +1341,14 @@ print(f"Total detections after merging: {len(all_detections)}")
 
 
 
+```python
 
+```
+
+
+```python
+
+```
 
 
 ## Multi-Camera & Large-Scale Image Processing  
