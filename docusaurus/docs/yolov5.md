@@ -1,6 +1,6 @@
 # The YOLOv5 Playbook
 ## A Deep Dive into Object Detection
-#### Authors : Huangyi Qin, ChatGPction
+#### Authors : Huangyi Qin, ChatGPT
 
 
 ---
